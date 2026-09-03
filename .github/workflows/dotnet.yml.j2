@@ -78,9 +78,23 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y quilt
     - name: Prepare
-      run: ./dotnet-prepare 
+      run: |
+        ver=$(echo "{% raw %}${{ github.ref_name }}{% endraw %}" | sed 's/^v//' | cut -d- -f1)
+        band=$(echo "$ver" | cut -d. -f3)
+        if [[ "$band" =~ ^[0-9]+$ ]] && (( band >= 200 )); then
+          ./dotnet-prepare --higher-band "$ver"
+        else
+          ./dotnet-prepare
+        fi
     - name: Build
-      run: ARCH={% raw %}${{ matrix.arch }}{% endraw %} ./docker/run-image {{ image }} ./dotnet-build 
+      run: |
+        ver=$(echo "{% raw %}${{ github.ref_name }}{% endraw %}" | sed 's/^v//' | cut -d- -f1)
+        band=$(echo "$ver" | cut -d. -f3)
+        if [[ "$band" =~ ^[0-9]+$ ]] && (( band >= 200 )); then
+          ARCH={% raw %}${{ matrix.arch }}{% endraw %} ./docker/run-image {{ image }} ./dotnet-build --higher-band "$ver"
+        else
+          ARCH={% raw %}${{ matrix.arch }}{% endraw %} ./docker/run-image {{ image }} ./dotnet-build
+        fi
     - name: Upload the intermediate results
       uses: actions/upload-artifact@v4
       with:

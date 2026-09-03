@@ -30,6 +30,8 @@ esac
 use_custom_packages=false
 use_custom_sdk=false
 run_prep=true
+use_shared_components=false
+SHAREDCOMPONENTSDIR=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -51,12 +53,93 @@ while [[ $# -gt 0 ]]; do
         run_prep=false
         shift
         ;;
+    --higher-band)
+        BAND_VERSION="$2"
+        if [[ ! "$BAND_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "--higher-band version must be MAJOR.MINOR.PATCH, e.g. 10.0.300"
+            exit 1
+        fi
+        shift 2
+        ;;
     *)
         echo "Unknown argument: $1"
         exit 1
         ;;
     esac
 done
+
+if [[ -n "${BAND_VERSION:-}" ]]; then
+    # Require ARCH — it must be set externally (e.g. ARCH=s390x ./docker/run ...)
+    [[ -n "${ARCH:-}" ]] || { echo "ARCH is not set; run as: ARCH=s390x ./docker/run ./dotnet-build --higher-band ${BAND_VERSION}"; exit 1; }
+
+    IBM_REPO="IBM/dotnet-s390x"
+    GH_API="https://api.github.com/repos/${IBM_REPO}/releases"
+
+    # dotnet/ was cloned by dotnet-prepare --higher-band; resolve its path.
+    DOTNETDIR="$BASEDIR/dotnet"
+    VERSION_PROPS="${DOTNETDIR}/eng/Version.Details.props"
+    [[ -f "$VERSION_PROPS" ]] || { echo "Cannot find ${VERSION_PROPS} — did you run: ./dotnet-prepare --higher-band ${BAND_VERSION}?"; exit 1; }
+    RAW_ARTIFACTS_VERSION=$(python3 - "$VERSION_PROPS" <<'PYEOF'
+import sys, re
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+m = re.search(r'<MicrosoftNETSdkPackageVersion>\s*([^<]+)\s*</MicrosoftNETSdkPackageVersion>', content)
+if not m:
+    sys.exit("MicrosoftNETSdkPackageVersion not found in " + path)
+print(m.group(1).strip())
+PYEOF
+    )
+    # Strip pre-release suffix, then subtract 1 from patch to get the
+    # IBM prebuilt 1xx release that this higher-band was bootstrapped from.
+    # e.g. 10.0.111-servicing.26373.116 -> 10.0.111 -> 10.0.110
+    SHORT_VERSION="${RAW_ARTIFACTS_VERSION%%-*}"
+    MAJOR_MINOR="${SHORT_VERSION%.*}"
+    RAW_PATCH="${SHORT_VERSION##*.}"
+    PATCH_NUM=$(( RAW_PATCH - 1 ))
+    SHORT_VERSION="${MAJOR_MINOR}.${PATCH_NUM}"
+    DOTNET_MAJOR="${MAJOR_MINOR%%.*}"
+    echo "[bootstrap] 1xx artifacts version: ${SHORT_VERSION}"
+
+    SHAREDCOMPONENTSDIR="${HOME}/1xx-components-${SHORT_VERSION}"
+    mkdir -p "${SHAREDCOMPONENTSDIR}"
+
+    # Direct tag lookup — exact match on the corrected SHORT_VERSION
+    BEST_TAG="v${SHORT_VERSION}"
+    echo "[bootstrap] Using IBM release: ${BEST_TAG}"
+
+    PSB_URL=$(curl -fsSL "${GH_API}/tags/${BEST_TAG}" \
+        | python3 -c "
+import json, sys, re
+pat = re.compile(r'^Private\.SourceBuilt\.Artifacts\..*\.linux-${ARCH}\.tar\.gz$')
+for a in json.load(sys.stdin).get('assets', []):
+    if pat.match(a['name']):
+        print(a['browser_download_url'])
+        break
+")
+    [[ -n "$PSB_URL" ]] || { echo "PSB artifacts not found for linux-${ARCH} in ${BEST_TAG}"; exit 1; }
+    echo "[bootstrap] Artifacts tar: ${PSB_URL}"
+
+    PSB_TAR="${SHAREDCOMPONENTSDIR}/$(basename "$PSB_URL")"
+    if [[ ! -f "$PSB_TAR" ]]; then
+        echo "[bootstrap] Downloading PSB artifacts..."
+        curl -fL --retry 3 -o "$PSB_TAR" "$PSB_URL"
+    else
+        echo "[bootstrap] PSB tar already present, skipping download."
+    fi
+    tar -xf "$PSB_TAR" -C "${SHAREDCOMPONENTSDIR}"
+
+    pushd "${DOTNETDIR}"
+    if (( DOTNET_MAJOR >= 11 )); then
+        ROOTFS_DIR=$(pwd) ./prep-source-build.sh --no-shared-components
+    else
+        ROOTFS_DIR=$(pwd) ./prep-source-build.sh
+    fi
+    popd
+
+    use_shared_components=true
+    run_prep=false
+fi
 
 build_sdk() {
     local sdk_build_flags=(
@@ -76,13 +159,19 @@ build_sdk() {
         )
     fi
     if [[ -z "${OFFICIAL_BUILD_ID:-}" ]]; then
-        pushd dotnet
-        if git merge-base --is-ancestor 44525024595742ebe09023abe709df51de65009b HEAD; then
+        if [[ -n "${BAND_VERSION:-}" ]]; then
+            # Higher-band: --branding rtm does not exist in dotnet/dotnet >= 10.0.2xx
             sdk_build_flags+=(--branding release)
         else
-            sdk_build_flags+=(--branding rtm)
+            # 1xx: preserve original logic — rtm for older versions, release for newer
+            pushd dotnet
+            if git merge-base --is-ancestor 44525024595742ebe09023abe709df51de65009b HEAD; then
+                sdk_build_flags+=(--branding release)
+            else
+                sdk_build_flags+=(--branding rtm)
+            fi
+            popd
         fi
-        popd
     fi
 
     if [[ -n "${OFFICIAL_BUILD_ID:-}" ]]; then
@@ -91,6 +180,10 @@ build_sdk() {
 
     if [[ "$use_custom_packages" == true ]]; then
         sdk_build_flags+=(--with-packages "$CUSTOMPACKAGESDIR")
+    fi
+
+    if [[ "$use_shared_components" == true ]]; then
+        sdk_build_flags+=(--with-shared-components "$SHAREDCOMPONENTSDIR")
     fi
 
     if [[ "$use_custom_sdk" == true ]]; then

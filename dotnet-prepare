@@ -2,6 +2,20 @@
 set -e -u -x -o pipefail
 
 BASEDIR=$(cd "$(dirname "$0")" && pwd)
+HIGHER_BAND_VERSION=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --higher-band)
+            HIGHER_BAND_VERSION="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
 filter=()
 if git -C "$(dirname "$0")" fetch --filter=tree:0 >/dev/null 2>&1; then
     filter=(--filter=tree:0)
@@ -73,5 +87,18 @@ function prepare_sdk {
     popd
 }
 projects=(dotnet)
-git submodule update "${filter[@]}" --init --recursive -- "${projects[@]}"
-eval prepare_sdk
+if [[ -n "$HIGHER_BAND_VERSION" ]]; then
+    # Higher-band path (2xx/3xx/4xx): remove whatever dotnet/ contains
+    # (submodule gitlink after dotnet-bump, stale clone, or nothing) and
+    # do a fresh shallow clone at the band tag.
+    # No patches needed — higher-band tags contain all fixes upstream.
+    TAG="v${HIGHER_BAND_VERSION}"
+    DOTNETDIR="$BASEDIR/dotnet"
+    rm -rf "${DOTNETDIR}"
+    git clone --depth 1 --branch "${TAG}" \
+        "https://github.com/dotnet/dotnet.git" "${DOTNETDIR}"
+else
+    # Normal 1xx path — completely unchanged.
+    git submodule update "${filter[@]}" --init --recursive -- "${projects[@]}"
+    eval prepare_sdk
+fi
