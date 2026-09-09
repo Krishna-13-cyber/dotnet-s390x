@@ -72,6 +72,20 @@ function prepare_sdk {
     fi
     popd
 }
-projects=(dotnet)
-git submodule update "${filter[@]}" --init --recursive -- "${projects[@]}"
-eval prepare_sdk
+pushd "$(dirname "$0")"
+# shellcheck disable=SC1091
+. dotnet-versions
+popd
+
+# Higher-band path (>= 2xx): check out tag directly without patches/submodule recursion
+band=$(echo "$sdk_version_prefix" | cut -d. -f3)
+if [[ "$band" =~ ^[0-9]+$ ]] && ((band >= 200)); then
+    DOTNETDIR="$BASEDIR/dotnet"
+    rm -rf "${DOTNETDIR}"
+    git clone --depth 1 --branch "v${sdk_version}" \
+        "https://github.com/dotnet/dotnet.git" "${DOTNETDIR}"
+else
+    projects=(dotnet)
+    git submodule update "${filter[@]}" --init --recursive -- "${projects[@]}"
+    eval prepare_sdk
+fi
