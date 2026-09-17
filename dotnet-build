@@ -121,9 +121,9 @@ build_sdk() {
         if [ "$sdk_major_version" -eq 10 ] && [ "$sdk_patch_version" -gt 100 ]; then
             gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "*.nupkg" --dir .dotnet/library-packs/
             gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "*.nupkg" --dir prereqs/packages/shared-components
-            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "dotnet-runtime-$(echo $shared_runtime_version | cut -d '-' -f1)-linux-$ARCH.tar.gz" --dir artifacts/assets/Release/Runtime/"$shared_runtime_version"/
+            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "dotnet-runtime-$(echo "$shared_runtime_version" | cut -d '-' -f1)-linux-$ARCH.tar.gz" --dir artifacts/assets/Release/Runtime/"$shared_runtime_version"/
 
-            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "dotnet-sdk-$shared_major_version-linux-$ARCH.tar.gz" --output artifacts/assets/Release/aspnetcore/Runtime/$shared_runtime_version/"aspnetcore-runtime-$(echo $shared_runtime_version | cut -d '-' -f1)-linux-$ARCH.tar.gz"
+            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "dotnet-sdk-$shared_major_version-linux-$ARCH.tar.gz" --output artifacts/assets/Release/aspnetcore/Runtime/"$shared_runtime_version"/"aspnetcore-runtime-$(echo "$shared_runtime_version" | cut -d '-' -f1)-linux-$ARCH.tar.gz"
         fi
         popd
     fi
