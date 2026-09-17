@@ -64,6 +64,7 @@ function prepare_sdk {
         git fetch origin main
         backport "" e64f84d
         backport 58d1b48 eb2c106
+        backport "" 85ca690
         if git merge-base --is-ancestor e020f45 HEAD; then
             if ! git merge-base --is-ancestor 5fbaa71 HEAD; then
                 git am "$BASEDIR/dotnet-patches/5fbaa71-streamline-arch-arg.patch"

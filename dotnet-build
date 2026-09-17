@@ -59,6 +59,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 build_sdk() {
+
+    sdk_version=$(awk -F'=' '$1=="sdk_version" {print $2}' ./dotnet-versions)
+    sdk_major_version=$(echo "$sdk_version" | cut -d '.' -f1)
+    sdk_patch_version=$(echo "$sdk_version" | cut -d '.' -f3)
+    if [ "$sdk_major_version" -eq 10 ] && [ "$sdk_patch_version" -gt 100 ]; then
+        shared_runtime_version=$(sed -nE 's/.*<MicrosoftNETCorePlatformsPackageVersion>(.*)<\/MicrosoftNETCorePlatformsPackageVersion>.*/\1/p' dotnet/eng/Version.Details.props)
+        shared_major_version=$(sed -nE 's/.*<MicrosoftNETSdkPackageVersion>(.*)<\/MicrosoftNETSdkPackageVersion>.*/\1/p' dotnet/eng/Version.Details.props | cut -d '-' -f1)
+    fi
+
     local sdk_build_flags=(
         --source-only
         --clean-while-building
@@ -78,6 +87,8 @@ build_sdk() {
     if [[ -z "${OFFICIAL_BUILD_ID:-}" ]]; then
         pushd dotnet
         if git merge-base --is-ancestor 44525024595742ebe09023abe709df51de65009b HEAD; then
+            sdk_build_flags+=(--branding release)
+        elif [ "$sdk_major_version" -eq 10 ] && [ "$sdk_patch_version" -gt 100 ]; then
             sdk_build_flags+=(--branding release)
         else
             sdk_build_flags+=(--branding rtm)
@@ -107,6 +118,13 @@ build_sdk() {
     if [[ "$run_prep" == true && "$use_custom_sdk" == false ]]; then
         pushd "$DOTNETDIR"
         ROOTFS_DIR=$(pwd) ./prep-source-build.sh
+        if [ "$sdk_major_version" -eq 10 ] && [ "$sdk_patch_version" -gt 100 ]; then
+            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "*.nupkg" --dir .dotnet/library-packs/
+            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "*.nupkg" --dir prereqs/packages/shared-components
+            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "dotnet-runtime-$(echo $shared_runtime_version | cut -d '-' -f1)-linux-$ARCH.tar.gz" --dir artifacts/assets/Release/Runtime/"$shared_runtime_version"/
+
+            gh release download "v$shared_major_version" --skip-existing --repo IBM/dotnet-s390x --pattern "dotnet-sdk-$shared_major_version-linux-$ARCH.tar.gz" --output artifacts/assets/Release/aspnetcore/Runtime/$shared_runtime_version/"aspnetcore-runtime-$(echo $shared_runtime_version | cut -d '-' -f1)-linux-$ARCH.tar.gz"
+        fi
         popd
     fi
     pushd "$DOTNETDIR"
