@@ -63,7 +63,7 @@ build_sdk() {
     sdk_version=$(awk -F'=' '$1=="sdk_version" {print $2}' ./dotnet-versions)
     sdk_major_version=$(echo "$sdk_version" | cut -d '.' -f1)
     sdk_patch_version=$(echo "$sdk_version" | cut -d '.' -f3)
-    if [ "$sdk_major_version" -eq 10 ] && [ "$sdk_patch_version" -gt 100 ]; then
+    if [ "$sdk_major_version" -eq 10 ] && [ "$sdk_patch_version" -ge 200 ]; then
         shared_runtime_version=$(sed -nE 's/.*<MicrosoftNETCorePlatformsPackageVersion>(.*)<\/MicrosoftNETCorePlatformsPackageVersion>.*/\1/p' dotnet/eng/Version.Details.props)
         shared_major_version=$(sed -nE 's/.*<MicrosoftNETSdkPackageVersion>(.*)<\/MicrosoftNETSdkPackageVersion>.*/\1/p' dotnet/eng/Version.Details.props | cut -d '-' -f1)
     fi
